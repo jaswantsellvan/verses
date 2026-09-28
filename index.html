@@ -1067,6 +1067,12 @@ let entered = false;
 let session = null;
 let authMode = 'login';
 
+/*
+  PASSWORD RECOVERY
+  True when the user arrives from a "reset password" email link.
+*/
+let recovering = window.location.hash.includes('type=recovery');
+
 let state = {
   tab:'write',
   step:'category',
@@ -1137,6 +1143,12 @@ function updateMood(){
 async function render(){
 
   const app = document.getElementById('app');
+
+  if(recovering && session){
+    app.innerHTML = renderReset();
+    wireReset();
+    return;
+  }
 
   if(!entered){
     app.innerHTML = renderWelcome();
@@ -1284,6 +1296,41 @@ function wireWelcome(){
 
 function renderAuth(){
 
+  if(authMode === 'forgot'){
+    return `
+      <div class="authbox">
+
+        <h2>Reset your password</h2>
+
+        <div class="sub">
+          Enter your email and we'll send you a reset link.
+        </div>
+
+        <label>Email</label>
+
+        <input
+          type="email"
+          id="authEmail">
+
+        <div
+          class="err"
+          id="authErr">
+        </div>
+
+        <button
+          class="primary"
+          id="authSubmit">
+          Send reset link
+        </button>
+
+        <div class="toggle">
+          <a id="toLogin">Back to log in</a>
+        </div>
+
+      </div>
+    `;
+  }
+
   return `
     <div class="authbox">
 
@@ -1328,6 +1375,12 @@ function renderAuth(){
 
       </div>
 
+      ${
+        authMode === 'login'
+          ? `<div class="toggle"><a id="toForgot">Forgot password?</a></div>`
+          : ''
+      }
+
     </div>
   `;
 }
@@ -1336,6 +1389,14 @@ function wireAuth(){
 
   const toS = document.getElementById('toSignup');
   const toL = document.getElementById('toLogin');
+  const toF = document.getElementById('toForgot');
+
+  if(toF){
+    toF.onclick = ()=>{
+      authMode = 'forgot';
+      render();
+    };
+  }
 
   if(toS){
     toS.onclick = ()=>{
@@ -1349,6 +1410,43 @@ function wireAuth(){
       authMode = 'login';
       render();
     };
+  }
+
+  if(authMode === 'forgot'){
+
+    document.getElementById('authSubmit').onclick =
+      async ()=>{
+
+        const email =
+          document.getElementById('authEmail').value.trim();
+
+        const errEl =
+          document.getElementById('authErr');
+
+        errEl.style.color = '';
+        errEl.textContent = '';
+
+        if(!email){
+          errEl.textContent = 'Enter your email.';
+          return;
+        }
+
+        const { error } =
+          await sb.auth.resetPasswordForEmail(email,{
+            redirectTo: window.location.origin
+          });
+
+        if(error){
+          errEl.textContent = error.message;
+        }
+        else{
+          errEl.style.color = 'var(--accent)';
+          errEl.textContent =
+            'If that email has an account, a reset link is on its way.';
+        }
+      };
+
+    return;
   }
 
   document.getElementById('authSubmit').onclick =
@@ -1389,6 +1487,99 @@ function wireAuth(){
         errEl.textContent =
           'Check your email to confirm your account, then log in.';
       }
+    };
+}
+
+function renderReset(){
+
+  return `
+    <div class="authbox">
+
+      <h2>Set a new password</h2>
+
+      <label>New password</label>
+
+      <input
+        type="password"
+        id="newPass">
+
+      <label>Confirm password</label>
+
+      <input
+        type="password"
+        id="newPass2">
+
+      <div
+        class="err"
+        id="resetErr">
+      </div>
+
+      <button
+        class="primary"
+        id="resetSubmit">
+        Save new password
+      </button>
+
+      <div class="toggle">
+        <a id="resetCancel">Cancel</a>
+      </div>
+
+    </div>
+  `;
+}
+
+function wireReset(){
+
+  document.getElementById('resetSubmit').onclick =
+    async ()=>{
+
+      const p1 =
+        document.getElementById('newPass').value;
+
+      const p2 =
+        document.getElementById('newPass2').value;
+
+      const errEl =
+        document.getElementById('resetErr');
+
+      errEl.textContent = '';
+
+      if(p1.length < 6){
+        errEl.textContent =
+          'Use at least 6 characters.';
+        return;
+      }
+
+      if(p1 !== p2){
+        errEl.textContent =
+          'Passwords do not match.';
+        return;
+      }
+
+      const { error } =
+        await sb.auth.updateUser({
+          password:p1
+        });
+
+      if(error){
+        errEl.textContent = error.message;
+        return;
+      }
+
+      recovering = false;
+      entered = true;
+      history.replaceState(null,'',window.location.pathname);
+
+      render();
+    };
+
+  document.getElementById('resetCancel').onclick =
+    async ()=>{
+
+      recovering = false;
+      history.replaceState(null,'',window.location.pathname);
+
+      await sb.auth.signOut();
     };
 }
 
@@ -2489,6 +2680,10 @@ sb.auth
 sb.auth.onAuthStateChange(
   (_event,s)=>{
 
+    if(_event === 'PASSWORD_RECOVERY'){
+      recovering = true;
+    }
+
     session = s;
 
     render();
@@ -2496,7 +2691,6 @@ sb.auth.onAuthStateChange(
 );
 
 </script>
-
 
 </body>
 </html>
